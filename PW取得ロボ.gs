@@ -1,3 +1,11 @@
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('秘密情報')                      //メニュー名
+    .addItem('PW取得', 'PwAcquisitionDecision') //PW取得ロボ 起動
+    .addToUi();
+}
+
+
 /**
  * PW取得ロボ
  * リクエスト内容が正しいか、権限があるかを判定し、
@@ -45,7 +53,7 @@ function PwAcquisitionDecision() {
   //稼働終了時の関数
   const finalize = (status, message) => {
     log_sheet.appendRow([...log_text, status]);
-    ui.alert(message);
+    if (message) ui.alert(message);
     return; // 早期終了用
   };
 
@@ -61,14 +69,39 @@ function PwAcquisitionDecision() {
   if(!matched_data[0][account_index].includes(user_account)) return finalize("権限無し","パスワードの取得権限がありません");
 
   //無効になっている場合も終了
-  if(matched_data[0][valid_index]!="有効") return finalize("PW無効","パスワードが無効になっています");
+  if(matched_data[0][valid_index]!="有効") return finalize("PW無効","パスワードが無効になっています。");
   
 
   //PWを受け渡すロボを稼働する
   const pass_obj = {
-    company_name : matched_data[0][company_index],
-    site_name : matched_data[0][site_index],
-    usage_name : matched_data[0][usage_index]
+    [company_name] : matched_data[0][company_index],
+    [site_name] : matched_data[0][site_index],
+    [usage_name] : matched_data[0][usage_index]
   }
-  //ここでPW受渡ロボ稼働
+  const property = PropertiesService.getScriptProperties();
+  const url = property.getProperty("PW_DELIVERY_URL");
+  const payload = JSON.stringify(pass_obj);
+  const options = {
+    'method' : 'post',
+    'contentType': 'application/json',
+    'payload' : payload
+  };
+
+  const response = UrlFetchApp.fetch(url,options);
+  const res_data = JSON.parse(response.getContentText());
+  
+  //エラーの場合は稼働終了
+  if(res_data.error) return finalize("PW受渡しエラー","パスワードが取得できませんでした。\n管理者に連絡してください。");
+
+  //ダイアログにパスワードを表示
+  showPwDialog(res_data);
+  return finalize("受渡し成功");
+}
+
+
+function showPwDialog(passObj) {
+  const tpl = HtmlService.createTemplateFromFile('PwDialog'); //HTMLファイル名を指定
+  tpl.data = passObj;
+  const html = tpl.evaluate().setWidth(520).setHeight(320);
+  SpreadsheetApp.getUi().showModalDialog(html, '認証情報の表示');
 }

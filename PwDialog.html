@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <base target="_top">
+  <style>
+    body { font:14px/1.6 system-ui, sans-serif; padding:16px; }
+    .row { display:flex; align-items:center; gap:8px; margin:8px 0; }
+    .label { width:72px; color:#444; }
+    input.view { flex:1; padding:6px 8px; border:1px solid #ddd; border-radius:6px; }
+    button { padding:6px 10px; border:0; border-radius:8px; cursor:pointer; background:#1a73e8; color:#fff; }
+    button.secondary { background:#666; }
+    #hint { color:#666; margin-top:8px; }
+    #count { color:#666; margin-left:6px; }
+  </style>
+</head>
+<body>
+  <h3>認証情報</h3>
+
+  <div class="row">
+    <div class="label">ID①</div>
+    <input id="id1" class="view" type="text" readonly>
+    <button onclick="copyField('id1')">コピー</button>
+  </div>
+
+  <div class="row">
+    <div class="label">ID②</div>
+    <input id="id2" class="view" type="text" readonly>
+    <button onclick="copyField('id2')">コピー</button>
+  </div>
+
+  <div class="row">
+    <div class="label">PW</div>
+    <input id="pw" class="view" type="text" value="（非表示）" readonly>
+    <button id="reveal" onclick="revealPw()" title="10秒だけ表示">10秒間表示</button>
+    <button id="copyPw" class="secondary" onclick="copyField('pw')" disabled>コピー</button>
+    <span id="count"></span>
+  </div>
+
+  <div id="hint">※ IDは常にコピーできます。PWは「10秒間表示」中のみ表示・コピー可能です。</div>
+
+  <script>
+    // Code.gs から受け取ったデータ
+    const DATA = <?!= JSON.stringify(data) ?>; // { "ID①":"...", "ID②":"...", "PW":"..." }
+
+    // 初期表示（IDは常時表示）
+    document.getElementById('id1').value = DATA['ID①'] || '';
+    document.getElementById('id2').value = DATA['ID②'] || '';
+
+    // 入力クリックで全選択（コピーしやすく）
+    for (const id of ['id1','id2','pw']) {
+      document.getElementById(id).addEventListener('focus', e => e.target.select());
+      document.getElementById(id).addEventListener('click', e => e.target.select());
+    }
+
+    async function copyField(id) {
+      const el = document.getElementById(id);
+      try {
+        await navigator.clipboard.writeText(el.value);
+        toast('コピーしました');
+      } catch {
+        // フォールバック
+        el.select(); document.execCommand('copy');
+        toast('コピーしました');
+      }
+    }
+
+    function toast(msg) {
+      // 簡易トースト
+      const t = document.createElement('div');
+      t.textContent = msg;
+      t.style.cssText = 'position:fixed;right:12px;bottom:12px;background:#333;color:#fff;padding:6px 10px;border-radius:8px;opacity:.95;';
+      document.body.appendChild(t);
+      setTimeout(()=>t.remove(), 1500);
+    }
+
+    function revealPw() {
+      const btn = document.getElementById('reveal');
+      const pwInput = document.getElementById('pw');
+      const copyBtn = document.getElementById('copyPw');
+      const count = document.getElementById('count');
+
+      if (!DATA['PW']) { toast('PWが取得できていません'); return; }
+
+      btn.disabled = true;
+      copyBtn.disabled = false;
+      pwInput.value = DATA['PW'];      // 表示
+      let s = 10;
+
+      (function tick(){
+        count.textContent = `（${s}秒後に非表示）`;
+        if (s-- <= 0) {
+          // 非表示化
+          pwInput.value = '（非表示）';
+          copyBtn.disabled = true;
+          count.textContent = '';
+          // 必要なら再表示不可にする（ボタン無効のまま）
+          // btn.disabled = true;
+          // 再度表示を許すなら以下を有効化
+          // btn.disabled = false;
+        } else {
+          setTimeout(tick, 1000);
+        }
+      })();
+    }
+  </script>
+</body>
+</html>
