@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<base target="_top">
+<style>
+  body { font:14px/1.6 system-ui,sans-serif; padding:12px; }
+  h3 { margin:8px 0 12px; }
+  .field { margin:10px 0 14px; }
+  .field .label { display:block; margin-bottom:6px; color:#444; font-weight:600; }
+  .ctrl { display:flex; gap:8px; align-items:center; }
+  select, input { width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:8px; }
+  button { padding:8px 12px; border:0; border-radius:8px; cursor:pointer; background:#1a73e8; color:#fff; }
+  button.small { padding:6px 10px; }
+  button.secondary { background:#666; }
+  .count { color:#666; }
+  .note { padding:10px; border:1px dashed #ccc; border-radius:8px; background:#fafafa; user-select: none; white-space:pre-wrap; }
+  .section { margin-top:14px; padding-top:10px; border-top:1px solid #eee; }
+  .muted { color:#666; margin-top:6px; }
+</style>
+</head>
+<body>
+  <!-- 依存プルダウン（縦並び） -->
+  <div class="field">
+    <span class="label">会社名</span>
+    <select id="company"></select>
+  </div>
+  <div class="field">
+    <span class="label">サイト・システム名</span>
+    <select id="site" disabled></select>
+  </div>
+  <div class="field">
+    <span class="label">用途</span>
+    <select id="usage" disabled></select>
+  </div>
+
+  <div class="field">
+    <button id="fetchBtn" disabled style="width:100%;">PWを取得</button>
+    <div id="status" class="muted"></div>
+  </div>
+
+  <!-- 結果（縦並び） -->
+  <div class="section" id="result" style="display:none;">
+    <div class="field">
+      <span class="label">システムURL</span>
+      <input id="url" type="text" readonly>
+      <button class="small" onclick="copyField('url')">コピー</button>
+      <button class="small secondary" onclick="openUrl()">開く</button>
+      
+    </div>
+
+    <div class="field">
+      <span class="label">ID①</span>
+      <input id="id1" type="text" readonly>
+      <button class="small" onclick="copyField('id1')">コピー</button>
+    </div>
+
+    <div class="field">
+      <span class="label">ID②</span>
+      <input id="id2" type="text" readonly>
+      <button class="small" onclick="copyField('id2')">コピー</button>
+    </div>
+
+    <div class="field" id="pw1Row">
+      <span class="label">PW①</span>
+      <input id="pw1" type="text" value="（非表示）" readonly>
+      <button id="reveal1" class="small" onclick="revealPw('pw1','reveal1','copyPw1','count1','PW①')">10秒間表示</button>
+      <button id="copyPw1" class="small secondary" onclick="copyField('pw1')" disabled>コピー</button>
+      <div id="count1" class="count"></div>
+    </div>
+
+    <div class="field" id="pw2Row">
+      <span class="label">PW②</span>
+      <input id="pw2" type="text" value="（非表示）" readonly>
+      <button id="reveal2" class="small" onclick="revealPw('pw2','reveal2','copyPw2','count2','PW②')">10秒間表示</button>
+      <button id="copyPw2" class="small secondary" onclick="copyField('pw2')" disabled>コピー</button>
+      <div id="count2" class="count"></div>
+    </div>
+
+    <div class="field">
+      <span class="label">備考</span>
+      <div id="note" class="note"></div>
+    </div>
+
+    <div class="muted">※ PW① / PW② は「10秒間表示」中のみ表示・コピー可能です。</div>
+  </div>
+
+<script>
+  // サーバで埋め込んだツリーをそのまま使う
+  const TREE = <?!= JSON.stringify(tree) ?>;
+
+  const $ = id => document.getElementById(id);
+  const companySel = $('company'), siteSel = $('site'), usageSel = $('usage');
+  const fetchBtn = $('fetchBtn'), statusEl = $('status'), resultBox = $('result');
+  let DATA = null;
+
+  // 表示直後にもう選べる
+  fill(companySel, TREE.companies, '会社名を選択');
+
+  companySel.addEventListener('change', () => {
+    reset(siteSel,'サイトを選択'); reset(usageSel,'用途を選択');
+    fetchBtn.disabled = true; resultBox.style.display = 'none';
+    const c = companySel.value;
+    if (!c) return;
+    fill(siteSel, (TREE.sitesByCompany[c] || []), 'サイトを選択');
+  });
+
+  siteSel.addEventListener('change', () => {
+    reset(usageSel,'用途を選択');
+    fetchBtn.disabled = true; resultBox.style.display = 'none';
+    const c = companySel.value, s = siteSel.value;
+    if (!s) return;
+    const usages =
+      (TREE.usagesByCompanyAndSite[c] && TREE.usagesByCompanyAndSite[c][s]) || [];
+    fill(usageSel, usages, '用途を選択');
+  });
+
+  usageSel.addEventListener('change', () => {
+    fetchBtn.disabled = !usageSel.value; resultBox.style.display='none';
+  });
+
+  // 取得→サーバ側 fetchPwForSidebar を呼ぶ（結果をサイドバーに描画）
+  fetchBtn.addEventListener('click', () => {
+    const c=companySel.value, s=siteSel.value, u=usageSel.value;
+    statusEl.textContent='権限確認→PW取得中...'; resultBox.style.display='none';
+
+    google.script.run
+      .withSuccessHandler(obj => {
+        DATA = obj || null;
+
+        // 何も返ってこなかった（null/undefined/空/全キー空文字）の場合は非表示のまま
+        const hasAny = DATA && Object.values(DATA).some(v => v != null && String(v).trim() !== '');
+        if (!hasAny) {
+          statusEl.textContent = '該当データがありませんでした';
+          resultBox.style.display = 'none';   // ← サイドバーの「画像の部分」（結果表示）を出さない
+          return;
+        }
+
+        $('id1').value = DATA['ID①'] || '';
+        $('id2').value = DATA['ID②'] || '';
+        $('url').value = DATA['システムURL'] || '';
+        $('note').textContent = DATA['備考'] || '';
+
+        // PW欄 初期化
+        $('pw1').value='（非表示）'; $('copyPw1').disabled=true; $('count1').textContent=''; $('reveal1').disabled=false;
+        $('pw2').value='（非表示）'; $('copyPw2').disabled=true; $('count2').textContent=''; $('reveal2').disabled=false;
+
+        // PW の有無で行ごと表示/非表示
+        const hasPw1 = !!(DATA['PW①'] && String(DATA['PW①']).trim());
+        const hasPw2 = !!(DATA['PW②'] && String(DATA['PW②']).trim());
+        $('pw1Row').style.display = hasPw1 ? '' : 'none';
+        $('pw2Row').style.display = hasPw2 ? '' : 'none';
+
+        resultBox.style.display='block';
+        statusEl.textContent='';
+      })
+      .withFailureHandler(showErr)
+      .PwAcquisitionDecision(c, s, u);
+  });
+
+  // ------- UI helpers -------
+  function fill(sel, list, placeholder) {
+    const frag = document.createDocumentFragment();
+    frag.appendChild(new Option('— '+placeholder+' —', ''));
+    (list||[]).forEach(v => frag.appendChild(new Option(v, v)));
+    sel.innerHTML=''; sel.appendChild(frag); sel.disabled=false;
+  }
+  function reset(sel, placeholder) {
+    sel.innerHTML=''; sel.appendChild(new Option('— '+placeholder+' —', '')); sel.disabled=true;
+  }
+  function showErr(err) { statusEl.textContent = (err && err.message) ? err.message : String(err); }
+
+  async function copyField(id) {
+    const el=$(id);
+    try { await navigator.clipboard.writeText(el.value); toast('コピーしました'); }
+    catch { el.select(); document.execCommand('copy'); toast('コピーしました'); }
+  }
+  function openUrl() {
+    const u = ($('url').value || '').trim();
+    if (!u) return toast('URLがありません');
+    try { window.open(u, '_blank'); } catch(_) {}
+  }
+  function toast(msg){
+    const t=document.createElement('div');
+    t.textContent=msg;
+    t.style.cssText='position:fixed;right:12px;bottom:12px;background:#333;color:#fff;padding:6px 10px;border-radius:8px;opacity:.95;z-index:9999;';
+    document.body.appendChild(t); setTimeout(()=>t.remove(),1500);
+  }
+  // 共通：PWを10秒だけ表示
+  function revealPw(inputId, buttonId, copyBtnId, countId, keyName) {
+    const btn=$(buttonId), pw=$(inputId), copy=$(copyBtnId), cnt=$(countId);
+    if (!DATA || !DATA[keyName]) { toast(`${keyName} が取得できていません`); return; }
+    btn.disabled=true; copy.disabled=false; pw.value=DATA[keyName];
+    let s=10; (function tick(){ cnt.textContent=`（${s}秒後に非表示）`;
+      if (s-- <= 0) { pw.value='（非表示）'; copy.disabled=true; cnt.textContent=''; /* btn.disabled=false; */ }
+      else setTimeout(tick,1000);
+    })();
+  }
+</script>
+</body>
+</html>
